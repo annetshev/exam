@@ -1,158 +1,96 @@
-import {splitNumber} from "./variant5";
-
-/**
- * Format a number in exponential notation. Like '1.23e+5', '2.3e+0', '3.500e-3'
- * @param {number | string} value
- * @param {number} [precision]  Number of digits in formatted output.
- *                              If not provided, the maximum available digits
- *                              is used.
- */
-export function toExponential (value, precision) {
-  if (isNaN(value) || !isFinite(value)) {
-    return String(value)
+function splitNumber(num) {
+  const regex = /^([+-]?)(\d+)(?:\.(\d*))?([eE]([+-]?\d+))?$/;
+  const match = num.match(regex);
+  if (!match) {
+    throw new Error("Invalid number format");
   }
 
-  // round if needed, else create a clone
-  const split = splitNumber(value)
-  const rounded = precision ? roundDigits(split, precision) : split
-  let c = rounded.coefficients
-  const e = rounded.exponent
+  const sign = match[1] || "";
+  const integerPart = match[2];
+  const fractionalPart = match[3] || "";
+  const exponent = match[5] ? parseInt(match[5], 10) : 0;
 
-  // append zeros if needed
-  if (c.length < precision) {
-    c = c.concat(zeros(precision - c.length))
-  }
+  const coefficients = integerPart
+    .split("")
+    .map(Number)
+    .concat(fractionalPart.split("").map(Number));
 
-  // format as `C.CCCe+EEE` or `C.CCCe-EEE`
-  const first = c.shift()
-  return rounded.sign + first + (c.length > 0 ? ('.' + c.join('')) : '') +
-    'e' + (e >= 0 ? '+' : '') + e
+  return {
+    sign,
+    coefficients,
+    exponent,
+  };
 }
 
-/**
- * Format a number with a certain precision
- * @param {number | string} value
- * @param {number} [precision=undefined] Optional number of digits.
- * @param {{lowerExp: number | undefined, upperExp: number | undefined}} [options]
- *                                       By default:
- *                                         lowerExp = -3 (incl)
- *                                         upper = +5 (excl)
- * @return {string}
- */
-export function toPrecision (value, precision, options) {
-  if (isNaN(value) || !isFinite(value)) {
-    return String(value)
-  }
+function toExponential(num, precision = 4) {
+  if (isNaN(num)) return "NaN";
+  if (num === Infinity) return "Infinity";
+  if (num === 0) return "0";
 
-  // determine lower and upper bound for exponential notation.
-  const lowerExp = (options && options.lowerExp !== undefined) ? options.lowerExp : -3
-  const upperExp = (options && options.upperExp !== undefined) ? options.upperExp : 5
-
-  const split = splitNumber(value)
-  const rounded = precision ? roundDigits(split, precision) : split
-  if (rounded.exponent < lowerExp || rounded.exponent >= upperExp) {
-    // exponential notation
-    return toExponential(value, precision)
-  } else {
-    let c = rounded.coefficients
-    const e = rounded.exponent
-
-    // append trailing zeros
-    if (c.length < precision) {
-      c = c.concat(zeros(precision - c.length))
-    }
-
-    // append trailing zeros
-    // TODO: simplify the next statement
-    c = c.concat(zeros(e - c.length + 1 +
-      (c.length < precision ? precision - c.length : 0)))
-
-    // prepend zeros
-    c = zeros(-e).concat(c)
-
-    const dot = e > 0 ? e : 0
-    if (dot < c.length - 1) {
-      c.splice(dot + 1, 0, '.')
-    }
-
-    return rounded.sign + c.join('')
-  }
+  const exp = Math.floor(Math.log10(Math.abs(num)));
+  const coefficient = num / Math.pow(10, exp);
+  const expSign = exp >= 0 ? "+" : "";
+  return coefficient.toFixed(precision) + "e" + expSign + exp;
 }
 
-/**
- * Round the number of digits of a number *
- * @param {SplitValue} split       A value split with .splitNumber(value)
- * @param {number} precision  A positive integer
- * @return {SplitValue}
- *              Returns an object containing sign, coefficients, and exponent
- *              with rounded digits
- */
-export function roundDigits (split, precision) {
-  // create a clone
-  const rounded = {
-    sign: split.sign,
-    coefficients: split.coefficients,
-    exponent: split.exponent
-  }
-  const c = rounded.coefficients
-
-  // prepend zeros if needed
-  while (precision <= 0) {
-    c.unshift(0)
-    rounded.exponent++
-    precision++
+function toPrecision(number, precision = 3) {
+  if (isNaN(number) || !isFinite(number)) {
+    return number.toString();
   }
 
-  if (c.length > precision) {
-    const removed = c.splice(precision, c.length - precision)
+  const str = number.toPrecision(precision);
 
-    if (removed[0] >= 5) {
-      let i = precision - 1
-      c[i]++
-      while (c[i] === 10) {
-        c.pop()
-        if (i === 0) {
-          c.unshift(0)
-          rounded.exponent++
-          i++
-        }
-        i--
-        c[i]++
-      }
+  const [integer, exponent] = str.split("e");
+  if (exponent && Math.abs(parseInt(exponent, 10)) > 5) {
+    return str;
+  }
+
+  return str;
+}
+
+function roundDigits(split, precision) {
+  let { sign, coefficients, exponent } = split;
+
+  coefficients = coefficients.slice(0, precision);
+
+  let carryOver = 0;
+  for (let i = coefficients.length - 1; i >= 0; i--) {
+    if (coefficients[i] === 10) {
+      coefficients[i] = 0;
+      carryOver = 1;
     }
   }
 
-  return rounded
-}
-
-/**
- * Create an array filled with zeros.
- * @param {number} length
- * @return {Array}
- */
-function zeros (length) {
-  const arr = []
-  for (let i = 0; i < length; i++) {
-    arr.push(0)
+  if (carryOver) {
+    coefficients = [1].concat(coefficients);
+    exponent += 1;
   }
-  return arr
+
+  return { sign, coefficients, exponent };
 }
 
-/**
- * Count the number of significant digits of a number.
- *
- * For example:
- *   2.34 returns 3
- *   0.0034 returns 2
- *   120.5e+30 returns 4
- *
- * @param {number} value
- * @return {number} digits   Number of significant digits
- */
-export function digits (value) {
-  return value
-    .toExponential()
-    .replace(/e.*$/, '') // remove exponential notation
-    .replace(/^0\.?0*|\./, '') // remove decimal point and leading zeros
-    .length
+function zeros(length) {
+  return Array(length).fill(0);
 }
+
+function digits(number) {
+  if (isNaN(number) || !isFinite(number)) {
+    return 0;
+  }
+
+  const str = number.toExponential();
+  const [base, exponent] = str.split("e");
+
+  const significantDigits = base.replace(".", "").length;
+
+  return significantDigits;
+}
+
+module.exports = {
+  splitNumber,
+  toExponential,
+  toPrecision,
+  roundDigits,
+  zeros,
+  digits,
+};
